@@ -655,6 +655,27 @@ function renderIssueRow({ owner, repo, issue }) {
 }
 
 function selectIssue({ owner, repo, issue }, rowEl) {
+  // Clicking the already-selected row deselects it (issue #19).
+  // Compare by (owner, repo, number) so a stale row with the same
+  // issue being re-selected from a fresh load still counts as "the
+  // same selection".
+  const isSameSelection =
+    selectedIssue &&
+    selectedIssue.owner === owner &&
+    selectedIssue.repo === repo &&
+    selectedIssue.number === issue.number;
+
+  if (isSameSelection && rowEl?.classList.contains("selected")) {
+    selectedIssue = null;
+    rowEl.classList.remove("selected");
+    if (createFromSelectedButton) {
+      createFromSelectedButton.textContent = "Create bounty";
+    }
+    setIssuesStatus(`Deselected #${issue.number}.`);
+    updateCreateControls();
+    return;
+  }
+
   selectedIssue = { owner, repo, number: issue.number, title: issue.title, body: issue.body };
 
   document.querySelectorAll(".issue-row.selected").forEach((el) => el.classList.remove("selected"));
