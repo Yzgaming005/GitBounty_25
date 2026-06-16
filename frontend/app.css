@@ -610,3 +610,13 @@ input[type="text"] {
   color: #0033aa;
   text-decoration: underline;
 }
+
+/* Brief flash when a row's snapshot recovers from an error state.
+   Used by the manual "Retry" button on snapshot-error rows (issue #16). */
+@keyframes bounty-flash {
+  0%   { background-color: rgba(0, 200, 80, 0.30); }
+  100% { background-color: transparent; }
+}
+.bounty-row.flash-updated {
+  animation: bounty-flash 1.2s ease-out;
+}
