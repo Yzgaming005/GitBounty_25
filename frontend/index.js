@@ -840,7 +840,7 @@ function renderBountyRow(base, snap, err) {
     const btn = row.querySelector(".bounty-compact-more");
     btn.addEventListener("click", (e) => {
       e.stopPropagation();
-      openBountyDetailsPopover(btn, {
+      toggleBountyDetailsPopover(btn, {
         title: `Bounty #${base.index} (snapshot error)`,
         rows: [
           ["Address", base.address],
@@ -945,7 +945,7 @@ function renderBountyRow(base, snap, err) {
       );
     }
 
-    openBountyDetailsPopover(btn, {
+    toggleBountyDetailsPopover(btn, {
       title: `${repoStr} #${displayIssueNumber ?? "—"}`,
       subtitle: issueTitle,
       rows: detailsRows,
@@ -975,6 +975,23 @@ function renderBountyRow(base, snap, err) {
   return row;
 }
 
+// Tracks the currently-active "info" button so we can toggle it.
+// When a button is in the active state, clicking it again closes
+// the popover (toggle behavior). Clicking outside also closes.
+let activeInfoBtn = null;
+
+function setActiveInfoBtn(btn) {
+  if (activeInfoBtn && activeInfoBtn !== btn) {
+    activeInfoBtn.classList.remove("is-active");
+    activeInfoBtn.setAttribute("aria-pressed", "false");
+  }
+  activeInfoBtn = btn;
+  if (btn) {
+    btn.classList.add("is-active");
+    btn.setAttribute("aria-pressed", "true");
+  }
+}
+
 function openBountyDetailsPopover(anchorBtnEl, data) {
   if (!bountyPopoverEl) return;
 
@@ -994,6 +1011,7 @@ function openBountyDetailsPopover(anchorBtnEl, data) {
   `;
 
   bountyPopoverEl.hidden = false;
+  setActiveInfoBtn(anchorBtnEl);
 
   const btnRect = anchorBtnEl.getBoundingClientRect();
   const popW = Math.min(520, window.innerWidth - 24);
@@ -1014,10 +1032,31 @@ function openBountyDetailsPopover(anchorBtnEl, data) {
 
   if (!popoverOutsideHandlerBound) {
     popoverOutsideHandlerBound = true;
-    window.addEventListener("pointerdown", () => {
-      if (!bountyPopoverEl.hidden) bountyPopoverEl.hidden = true;
+    window.addEventListener("pointerdown", (e) => {
+      if (!bountyPopoverEl.hidden) {
+        // Ignore clicks on any info button — those are handled by the
+        // button's own click listener (which toggles).
+        if (e.target.closest(".bounty-compact-more")) return;
+        bountyPopoverEl.hidden = true;
+        setActiveInfoBtn(null);
+      }
     });
   }
+}
+
+// Toggle the popover for the given info button. If the button is
+// already the active one, the popover is closed. Otherwise it is
+// (re)opened with the supplied content.
+function toggleBountyDetailsPopover(anchorBtnEl, data) {
+  if (
+    !bountyPopoverEl.hidden &&
+    activeInfoBtn === anchorBtnEl
+  ) {
+    bountyPopoverEl.hidden = true;
+    setActiveInfoBtn(null);
+    return;
+  }
+  openBountyDetailsPopover(anchorBtnEl, data);
 }
 
 /* =====================================================================
