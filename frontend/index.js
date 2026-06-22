@@ -594,6 +594,15 @@ function renderIssueRow({ owner, repo, issue }) {
 }
 
 function selectIssue({ owner, repo, issue }, rowEl) {
+  // Toggle: if same issue already selected, deselect
+  if (selectedIssue && selectedIssue.number === issue.number && selectedIssue.owner === owner && selectedIssue.repo === repo) {
+    selectedIssue = null;
+    rowEl?.classList.remove("selected");
+    setIssuesStatus("No issue selected");
+    updateCreateControls();
+    return;
+  }
+
   selectedIssue = { owner, repo, number: issue.number, title: issue.title, body: issue.body };
 
   document.querySelectorAll(".issue-row.selected").forEach((el) => el.classList.remove("selected"));
