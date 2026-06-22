@@ -355,6 +355,7 @@ function startDelayedLoading(nonce, delayMs = 200) {
 function setIssuesLoading(isLoading) {
   if (!issuesListEl) return;
   issuesListEl.classList.toggle("is-loading", isLoading);
+  if (loadIssuesButton) loadIssuesButton.classList.toggle("is-loading", isLoading);
 }
 
 function setIssuesStatus(msg) {
