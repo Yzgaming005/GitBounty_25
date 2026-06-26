@@ -10,6 +10,37 @@ const apiOrigin = API_ORIGIN || window.location.origin;
 // BOUNTY STATE LABELS (must match contract enum order)
 const BOUNTY_STATE = ["BASE", "EMPTY", "READY", "CALCULATING", "PAID"];
 
+/* ======================================================================
+   0a) CHAIN EXPLORER HELPERS (used by #3 + #4)
+   - Maps chainId (hex) to the corresponding Etherscan-family subdomain
+   - Falls back to the chainId label if the chain is unknown
+   - Returns null if no explorer URL can be safely constructed
+===================================================================== */
+const ETHERSCAN_HOSTS = {
+  "0x1":       "etherscan.io",
+  "0x5":       "goerli.etherscan.io",
+  "0xaa36a7":  "sepolia.etherscan.io",
+  "0x89":      "polygonscan.com",
+  "0x13881":   "mumbai.polygonscan.com",
+  "0xa":       "optimistic.etherscan.io",
+  "0x66eed":   "goerli.arbiscan.io",
+  "0x144":     "sepolia.blastscan.io",
+};
+
+function etherscanAddressUrl(chainId, address) {
+  if (!address || !/^0x[0-9a-fA-F]{40}$/.test(address)) return null;
+  const host = ETHERSCAN_HOSTS[String(chainId || "").toLowerCase()];
+  if (!host) return null;
+  return `https://${host}/address/${address}`;
+}
+
+function githubIssueUrl(owner, repo, number) {
+  if (!owner || !repo || number === undefined || number === null) return null;
+  const n = String(number).replace(/[^0-9]/g, "");
+  if (!n) return null;
+  return `https://github.com/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/issues/${n}`;
+}
+
 /* =====================================================================
    1) GLOBAL RUNTIME STATE
    Set on connect / accountsChanged, cleared on disconnect
@@ -1012,9 +1043,21 @@ function renderBountyRow(base, snap, err) {
   const issueStr = `#${displayIssueNumber ?? "—"} — ${issueTitle}`;
   const repoStr = `${displayRepoOwner || "—"}/${displayRepo || "—"}`;
 
+  // #4: GitHub issue link
+  const ghUrl = githubIssueUrl(displayRepoOwner, displayRepo, displayIssueNumber);
+  const issueNumberHtml = ghUrl
+    ? `<a class="bounty-issue-link" href="${escapeAttr(ghUrl)}" target="_blank" rel="noopener noreferrer" title="Open issue on GitHub">#${escapeHtml(String(displayIssueNumber))}</a>`
+    : `<strong>#${escapeHtml(String(displayIssueNumber ?? "—"))}</strong>`;
+
+  // #3: Etherscan link for the deployed bounty contract
+  const etherscanUrl = etherscanAddressUrl(currentChainId, base.address);
+  const addrHtml = etherscanUrl
+    ? `<a class="mono bounty-address-link" href="${escapeAttr(etherscanUrl)}" target="_blank" rel="noopener noreferrer" title="Open on block explorer">${escapeHtml(shortAddr(base.address))}</a>`
+    : `<span class="mono">${escapeHtml(shortAddr(base.address))}</span>`;
+
   row.innerHTML = `
     <div class="bounty-compact-title" title="${escapeAttr(issueStr)}">
-      <strong>#${displayIssueNumber ?? "—"}</strong> — ${escapeHtml(issueTitle)}
+      ${issueNumberHtml} — ${escapeHtml(issueTitle)}
     </div>
 
     <div class="bounty-compact-funding" title="Total funding">
