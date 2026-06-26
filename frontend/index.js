@@ -930,6 +930,7 @@ async function loadBountiesView({ write = false } = {}) {
       setRefreshLoading(false);
     }
   }
+  updateCreateControls();
 }
 
 /* =====================================================================
@@ -1228,9 +1229,11 @@ async function startup() {
 
   if (ok) {
     await loadBountiesView();
+    updateCreateControls();
   } else {
     setRefreshLoading(false);
     setListLoading(false);
+    updateCreateControls();
   }
 }
 
