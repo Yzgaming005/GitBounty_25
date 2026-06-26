@@ -79,6 +79,15 @@ multiUpkeepBtn.onclick = () => doManualUpkeep([...selectedBounties]);
 if (loadIssuesButton) loadIssuesButton.onclick = loadIssuesFromUI;
 if (createFromSelectedButton) createFromSelectedButton.onclick = createBountyFromSelected;
 
+// React to funding-amount input changes so the "Create bounty" button
+// reflects the current value. Without this, the button stays disabled
+// after the user types a positive amount, because updateCreateControls
+// is only called on connect/issue-select/create-flow events (issue #8).
+if (issuesFundingEthInput) {
+  issuesFundingEthInput.addEventListener("input", updateCreateControls);
+  issuesFundingEthInput.addEventListener("change", updateCreateControls);
+}
+
 // Keep UI synced with MetaMask account switching
 handleAccountChange();
 
@@ -135,6 +144,58 @@ function safeGet(res, i, fallbackKey) {
   } catch (_) {}
   if (fallbackKey && res && res[fallbackKey] !== undefined) return res[fallbackKey];
   return undefined;
+}
+
+// Retry a snapshot fetch with exponential backoff to ride out transient
+// RPC flakiness. Issue #16: snapshot errors appeared on page refresh even
+// though a manual retry succeeded. Treat the call as transient and retry
+// up to 3 times (250ms, 500ms, 1000ms) before giving up. Non-transient
+// errors (reverts, BAD_DATA) fail fast.
+const TRANSIENT_ERROR_PATTERNS = [
+  /timeout/i,
+  /ETIMEDOUT/,
+  /ECONNRESET/,
+  /ENETUNREACH/,
+  /EAI_AGAIN/,
+  /server error/i,
+  /503/,
+  /502/,
+  /504/,
+  /429/,
+  /try again/i,
+  /missing response/i,
+  /missing json rpc/i,
+];
+function isTransientError(err) {
+  const msg = (err && (err.shortMessage || err.message)) || String(err || "");
+  return TRANSIENT_ERROR_PATTERNS.some((re) => re.test(msg));
+}
+async function fetchSnapshotWithRetry(bounty, opts = {}) {
+  const {
+    retries = 3,
+    baseDelayMs = 250,
+    shouldAbort,
+  } = opts;
+  let lastErr;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    if (shouldAbort && shouldAbort()) {
+      const e = new Error("aborted");
+      e.code = "ABORTED";
+      throw e;
+    }
+    try {
+      return await bounty.getBountySnapshot();
+    } catch (err) {
+      lastErr = err;
+      if (attempt === retries) break;
+      if (!isTransientError(err)) break;
+      // Exponential backoff with linear jitter
+      const delay = baseDelayMs * Math.pow(2, attempt);
+      const jitter = Math.floor(Math.random() * baseDelayMs);
+      await new Promise((r) => setTimeout(r, delay + jitter));
+    }
+  }
+  throw lastErr;
 }
 
 // Prevent UI crashes if a value is missing or not BigInt-compatible
@@ -765,11 +826,13 @@ async function loadBountiesView({ write = false } = {}) {
 
     if (nonce !== bountiesLoadNonce) return;
 
-    // Fetch snapshots
+    // Fetch snapshots (with retry to ride out transient RPC errors)
     const settled = await Promise.allSettled(
       all.map(async (entry) => {
         const bounty = new ethers.Contract(entry.address, bountyAbi, provider);
-        const snap = await bounty.getBountySnapshot();
+        const snap = await fetchSnapshotWithRetry(bounty, {
+          shouldAbort: () => nonce !== bountiesLoadNonce,
+        });
         return { entry, snap };
       })
     );
@@ -834,7 +897,10 @@ function renderBountyRow(base, snap, err) {
       <div class="bounty-compact-title"><strong>#${base.index}</strong> — <span class="mono">(snapshot error)</span></div>
       <div class="bounty-compact-funding">—</div>
       <div class="bounty-compact-repo"><span class="mono">${shortAddr(base.address)}</span></div>
-      <button class="button kde bounty-compact-more" type="button" title="Details">⋯</button>
+      <div style="display:flex;gap:4px;align-items:flex-end;justify-content:flex-end;grid-column:2;grid-row:2;">
+        <button class="button kde bounty-snapshot-retry-btn" type="button" title="Retry snapshot">Retry</button>
+        <button class="button kde bounty-compact-more" type="button" title="Details">⋯</button>
+      </div>
     `;
 
     const btn = row.querySelector(".bounty-compact-more");
@@ -849,6 +915,31 @@ function renderBountyRow(base, snap, err) {
         ],
       });
     });
+
+    // Manual per-row retry for the persistent case where the initial
+    // fetch failed even after the helper's retries. Issue #16.
+    const retryBtn = row.querySelector(".bounty-snapshot-retry-btn");
+    if (retryBtn) {
+      retryBtn.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        const originalLabel = retryBtn.textContent;
+        retryBtn.disabled = true;
+        retryBtn.textContent = "Retrying…";
+        try {
+          const provider = (typeof browserProvider !== "undefined" && browserProvider) || readProvider;
+          const bounty = new ethers.Contract(base.address, bountyAbi, provider);
+          const snap = await fetchSnapshotWithRetry(bounty);
+          // Replace this row in-place with the success row
+          const newRow = renderBountyRow(base, snap);
+          newRow.classList.add("flash-updated");
+          row.replaceWith(newRow);
+        } catch (refreshErr) {
+          console.error("Manual snapshot retry failed", refreshErr);
+          retryBtn.disabled = false;
+          retryBtn.textContent = originalLabel;
+        }
+      });
+    }
 
     return row;
   }
